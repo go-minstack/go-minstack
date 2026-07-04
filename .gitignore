@@ -10,6 +10,7 @@
 *.test
 *.out
 coverage.html
+tmp/
 
 # Go modules
 /vendor/
