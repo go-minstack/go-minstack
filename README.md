@@ -14,7 +14,7 @@ MinStack is a modular backend foundation for Go, now maintained in a single repo
 - `repository`
 - `cli`
 - `web`
-- `migration`
+- `migration` — SQL and optional Go migrations via goose
 
 ## Import Style
 

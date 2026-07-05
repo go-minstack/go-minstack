@@ -12,31 +12,62 @@ import (
 	"gorm.io/gorm"
 )
 
+type migratorConfig struct {
+	goMigrations []*goose.Migration
+}
+
+// Option configures a Migrator or Module.
+type Option func(*migratorConfig)
+
+// WithGoMigrations registers programmatic goose migrations alongside embedded SQL.
+// SQL and Go migrations share one version sequence — do not use the same version
+// number in both (e.g. 00002_foo.sql and NewGoMigration(2, ...) together).
+func WithGoMigrations(m ...*goose.Migration) Option {
+	return func(c *migratorConfig) {
+		c.goMigrations = append(c.goMigrations, m...)
+	}
+}
+
+func applyOptions(opts []Option) migratorConfig {
+	var cfg migratorConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
 // Module provides a *Migrator into the FX container.
 // Opt-in to running migrations by invoking migration.Run:
 //
 //	app := core.New(postgres.Module, migration.Module(migrationsFS))
 //	app.Invoke(migration.Run)
-func Module(fsys fs.FS) fx.Option {
+func Module(fsys fs.FS, opts ...Option) fx.Option {
 	return fx.Module("migration",
 		fx.Provide(func(db *gorm.DB) *Migrator {
-			return New(db, slog.Default(), fsys)
+			return New(db, slog.Default(), fsys, opts...)
 		}),
 	)
 }
 
 type Migrator struct {
-	db  *gorm.DB
-	log *slog.Logger
-	fs  fs.FS
+	db           *gorm.DB
+	log          *slog.Logger
+	fs           fs.FS
+	goMigrations []*goose.Migration
 }
 
 // New creates a Migrator with a custom logger. Use when wiring manually via Register.
-func New(db *gorm.DB, log *slog.Logger, fsys fs.FS) *Migrator {
+func New(db *gorm.DB, log *slog.Logger, fsys fs.FS, opts ...Option) *Migrator {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Migrator{db: db, log: log, fs: fsys}
+	cfg := applyOptions(opts)
+	return &Migrator{
+		db:           db,
+		log:          log,
+		fs:           fsys,
+		goMigrations: cfg.goMigrations,
+	}
 }
 
 // Run is the FX invoke target for manual wiring: app.Invoke(migration.Run).
@@ -56,9 +87,15 @@ func (m *Migrator) Up() error {
 		return err
 	}
 
-	provider, err := goose.NewProvider(dialect, sqlDB, m.fs,
+	providerOpts := []goose.ProviderOption{
 		goose.WithLogger(&gooseLogger{log: m.log}),
-	)
+		goose.WithDisableGlobalRegistry(true),
+	}
+	if len(m.goMigrations) > 0 {
+		providerOpts = append(providerOpts, goose.WithGoMigrations(m.goMigrations...))
+	}
+
+	provider, err := goose.NewProvider(dialect, sqlDB, m.fs, providerOpts...)
 	if err != nil {
 		return err
 	}

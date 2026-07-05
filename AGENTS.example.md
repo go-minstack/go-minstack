@@ -283,14 +283,14 @@ func main() {
 
 ## Migration Pattern
 
-Use `migration` for SQL-file migrations:
+Use `migration` for SQL-file migrations (and optional Go migrations for dialect-specific logic):
 
 - pass one DB module to `core.New(...)`
 - pass `migration.Module(migrationsFS)` to `core.New(...)`
 - invoke `migration.Run`
 - embed SQL files with `embed.FS`
 
-Example:
+Example (SQL only):
 
 ```go
 app := core.New(
@@ -302,11 +302,27 @@ app.Invoke(migration.Run)
 app.Run()
 ```
 
+Example (SQL + Go):
+
+```go
+app := core.New(
+    sqlite.Module(),
+    migration.Module(
+        migrations.FS,
+        migration.WithGoMigrations(migrations.Go()...),
+    ),
+)
+
+app.Invoke(migration.Run)
+app.Run()
+```
+
 Migration notes:
 
 - `migration.Module(...)` provides `*migration.Migrator`
 - `migration.Run` applies all pending migrations
 - dialect is inferred from the active GORM driver
+- SQL and Go migrations share one version sequence — never use the same version number in both
 
 ## Logging Pattern
 
